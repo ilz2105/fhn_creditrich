@@ -9,6 +9,137 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyr)
 library(tidyverse)
+library(plyr)
 library(dplyr)
+library(rstatix)
+library(ggpubr)
+library(readxl)
+```
+
+```{r load.raw.data, include=FALSE}
+#total n = 654 for Blacks 
+pulse=read.csv("C:/Users/Lulu/OneDrive - cumc.columbia.edu/Documents/fhn_creditrich/Files/Pulse_2022_5_survey_public_data.csv") %>% 
+  mutate(black = as.factor(black), 
+         race = as.factor(race),
+         age=as.numeric(age),
+         maritalstatus=as.factor(maritalstatus),
+         education = as.factor(education),
+         hhincome=as.factor(hhincome),
+         final_weight=as.numeric(final_weight),
+         FinancialHealth_coping = case_when(FinancialHealth== "Coping" ~ 1,
+                                     FinancialHealth== "Healthy" ~ 0,
+                                     FinancialHealth== "Vulnerable" ~ 0,
+                                     TRUE ~ NA_real_),
+         FinancialHealth_healthy = case_when(FinancialHealth== "Healthy" ~ 1,
+                                     FinancialHealth== "Coping" ~ 0,
+                                     FinancialHealth== "Vulnerable" ~ 0,
+                                     TRUE ~ NA_real_),
+         FinancialHealth_vulnerable = case_when(FinancialHealth== "Vulnerable" ~ 1,
+                                     FinancialHealth== "Healthy" ~ 0,
+                                     FinancialHealth== "Coping" ~ 0,
+                                     TRUE ~ NA_real_),
+         sex = case_when(gender=="1 Male" ~ 1,
+                            gender=="0 Female" ~ 0,
+                            TRUE ~ NA_real_),
+         hhincome_le_30 = case_when(hhincome %in% c("1 Less than $5,000", "2 5,000 to 7,499","3 7,500 to 9,999","4 10,000 to 12,499","5 12,500 to 14,999", 
+                                                    "6 15,000 to 19,999","7 20,000 to 24,999","8 25,000 to 29,999") ~ 1,
+                                    hhincome %in% c ("9 30,000 to 34,999","10 35,000 to 39,999","11 40,000 to 49,999","12 50,000 to 59,999","13 60,000 to 74,999",
+                                                     "14 75,000 to 99,999","15 100,000 to 149,999","16 150,000 or more") ~0,
+                                                                                                                    TRUE ~ NA_real_),
+         hhincome_30_59 = case_when(hhincome %in% c("9 30,000 to 34,999","10 35,000 to 39,999","11 40,000 to 49,999") ~ 1,
+                                    hhincome %in% c ("1 Less than $5,000", "2 5,000 to 7,499","3 7,500 to 9,999","4 10,000 to 12,499","5 12,500 to 14,999", 
+                                                    "6 15,000 to 19,999","7 20,000 to 24,999","8 25,000 to 29,999","12 50,000 to 59,999","13 60,000 to 74,999",
+                                                     "14 75,000 to 99,999","15 100,000 to 149,999","16 150,000 or more") ~0,
+                                                                                                                    TRUE ~ NA_real_),
+         hhincome_60_99 = case_when(hhincome %in% c("12 50,000 to 59,999","13 60,000 to 74,999",
+                                                     "14 75,000 to 99,999") ~ 1,
+                                    hhincome %in% c ("1 Less than $5,000", "2 5,000 to 7,499","3 7,500 to 9,999","4 10,000 to 12,499","5 12,500 to 14,999", 
+                                                    "6 15,000 to 19,999","7 20,000 to 24,999","8 25,000 to 29,999","9 30,000 to 34,999","10 35,000 to 39,999",
+                                                    "11 40,000 to 49,999","15 100,000 to 149,999","16 150,000 or more") ~ 0,
+                                                                                                                    TRUE ~ NA_real_),
+         hhincome_100_up = case_when(hhincome %in% c("15 100,000 to 149,999","16 150,000 or more") ~ 1,
+                                    hhincome %in% c ("1 Less than $5,000", "2 5,000 to 7,499","3 7,500 to 9,999","4 10,000 to 12,499","5 12,500 to 14,999", 
+                                                    "6 15,000 to 19,999","7 20,000 to 24,999","8 25,000 to 29,999","9 30,000 to 34,999","10 35,000 to 39,999",
+                                                    "11 40,000 to 49,999","12 50,000 to 59,999","13 60,000 to 74,999",
+                                                     "14 75,000 to 99,999") ~ 0,
+                                                                      TRUE ~ NA_real_),
+         agegrp_1825 = case_when(age %in% c(18:25) ~ 1, 
+                            age %in% c(26:92) ~ 0,
+                            TRUE ~ NA_real_),
+         agegrp_2635 = case_when(age %in% c(26:35) ~ 1, 
+                            age %in% c(18:25, 36:92) ~ 0,
+                            TRUE ~ NA_real_),
+         agegrp_3649 = case_when(age %in% c(36:49) ~ 1, 
+                            age %in% c(18:35, 50:92) ~ 0,
+                            TRUE ~ NA_real_),
+         agegrp_5064 = case_when(age %in% c(50:64) ~ 1, 
+                            age %in% c(18:49, 65:92) ~ 0,
+                            TRUE ~ NA_real_),
+         agegrp_65_up = case_when(age %in% c(65:92) ~ 1, 
+                            age %in% c(18:64) ~ 0,
+                            TRUE ~ NA_real_),
+         new_employment_status = case_when( qc121s1 == "1 Yes" | qc121s2 == "1 Yes" ~ "Employed",# (currently working or on leave)
+	                                          qc121s1 == "0 No" & qc121s2 == "0 No" & qc124 == "1 Yes" ~ "Unemployed",  #(not working, not on leave, and actively searching)
+                                          	qc121s1 == "0 No" & qc121s2 == "0 No" & qc124 == 	"2 No" ~  "Not in labor force"),
+	
+         employed = case_when(new_employment_status %in% c("Employed") ~ 1,
+                              new_employment_status %in% c("Unemployed", "Not in labor force") ~ 0,
+                              TRUE ~NA_real_),
+         unemployed = case_when(new_employment_status %in% c("Unemployed") ~ 1,
+                              new_employment_status %in% c("Employed", "Not in labor force") ~ 0,
+                              TRUE ~NA_real_),
+         not_in_labor_force = case_when(new_employment_status %in% c("Not in labor force") ~ 1,
+                              new_employment_status %in% c("Employed", "Unemployed") ~ 0,
+                              TRUE ~NA_real_),
+         disability_yes = case_when(qc121s6 %in% c("1 Yes") ~ 1,
+                                    qc121s6 %in% c("0 No") ~ 0,
+                                    TRUE ~ NA_real_),
+         lgbtq_yes = case_when(qb09 %in% c(1,2, 4, 5)|qb11==1|qb10 %in% c(3,4)  ~ 1,
+                               qb09 == 3 | qb11 == 2 | qb10 %in% c(1,2) ~ 0)
+         ) %>%  #(not working, not on leave, and not actively searching)) %>%
+ filter(race %in%c("1 White Only","2 Black Only")) %>%
+    dplyr::select(black,race,gender,sex,age,agegrp_1825,agegrp_2635,agegrp_3649,agegrp_5064,agegrp_65_up,qc121s6,disability_yes,
+                  lgbtq_yes,qb11,qb09,maritalstatus,laborstatus,new_employment_status,employed,unemployed,not_in_labor_force,qc121s1,qc121s2,
+                  qc124,education,hhincome,hhincome_le_30,hhincome_30_59, hhincome_60_99,hhincome_100_up,FinancialHealth,
+                  FinancialHealth_coping,FinancialHealth_healthy,FinancialHealth_vulnerable,final_weight) %>% 
+  mutate(FinancialHealth=as.factor(FinancialHealth),
+        new_employment_status=as.factor(new_employment_status),
+        gender=as.factor(gender),
+        qc121s6 = as.factor(qc121s6),
+        race=as.factor(race)) 
+```
+
+```{r sig.test, message=FALSE,echo=FALSE}
+detach(package:plyr)
+pulse%>%
+  group_by(gender,race)  %>%
+  pairwise_t_test(FinancialHealth_coping ~race , p.adjust.method = "bonferroni")
+```
+
+```{r weighted.prev, include=FALSE, message=FALSE}
+#grab weighted % for each of the interested segments
+pulse %>% 
+summarise(FinancialHealth_coping=weighted.mean(FinancialHealth_coping,final_weight,na.rm=T),
+          FinancialHealth_healthy=weighted.mean(FinancialHealth_healthy,final_weight,na.rm=T),
+ FinancialHealth_vulnerable=weighted.mean(FinancialHealth_vulnerable,final_weight,na.rm=T))
+
+# gender=weighted.mean(gender,final_weight,na.rm=T)
+# FinancialHealth_coping=weighted.mean(FinancialHealth_coping,final_weight,na.rm=T),
+# FinancialHealth_healthy=weighted.mean(FinancialHealth_healthy,final_weight,na.rm=T),
+# FinancialHealth_vulnerable=weighted.mean(FinancialHealth_vulnerable,final_weight,na.rm=T),
+# hhincome_le_30 = weighted.mean(hhincome_le_30,final_weight,na.rm=T),
+# hhincome_30_59 = weighted.mean(hhincome_30_59,final_weight,na.rm=T),
+# hhincome_60_99 = weighted.mean(hhincome_60_99,final_weight,na.rm=T),
+# hhincome_100_up = weighted.mean(hhincome_100_up,final_weight,na.rm=T)
+# agegrp_1825=weighted.mean(agegrp_1825,final_weight,na.rm=T),
+#          agegrp_2635=weighted.mean(agegrp_2635,final_weight,na.rm=T),
+#          agegrp_3649=weighted.mean(agegrp_3649,final_weight,na.rm=T),
+#          agegrp_5064=weighted.mean(agegrp_5064,final_weight,na.rm=T),
+#          agegrp_65_up=weighted.mean(agegrp_65_up,final_weight,na.rm=T)
+#employed=weighted.mean(employed,final_weight,na.rm=T),
+#          unemployed=weighted.mean(unemployed,final_weight,na.rm=T),
+#          not_in_labor_force=weighted.mean(not_in_labor_force,final_weight,na.rm=T)  
+#disability_yes=weighted.mean(disability_yes,final_weight,na.rm=T),
+ # lgbtq_yes=weighted.mean(lgbtq_yes,final_weight,na.rm=T)
 ```
 
